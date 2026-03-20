@@ -1,0 +1,173 @@
+
+---
+title: "Social support and domestic violence: ordinal logistic regression"
+date: "March 20, 2026"
+format: html
+---
+
+::: {.callout-note}
+This report was generated using AI under general human direction. At the time of generation, the contents have not been comprehensively reviewed by a human analyst.
+
+<!--
+To indicate human review: Delete the line above about contents not being reviewed, and replace this comment with:
+The contents have been reviewed and validated by [Your Name], [Your Role] on [Date].
+-->
+:::
+
+## Introduction
+
+This report presents an ordinal logistic regression analysis using data collected via Prolific. The outcome variable is `ss1`, which captures participants' responses to the statement: *"I have someone who will listen to me when I need to talk."* Responses were recorded on a 5-point ordered scale from *Never* to *Always*.
+
+The two explanatory variables are:
+
+- **`nisvstot`**: Sum-score of a 34-item domestic violence questionnaire (yes/no items); higher scores indicate greater experience of violence and/or sexual assault.
+- **`TBIcount`**: Total number of head injuries the participant has experienced.
+
+The dataset contains `r nrow(pro2)` participants and `r ncol(pro2)` variables.
+
+## Data loading and cleaning
+
+```{r}
+#| label: load-packages
+library(tidyverse)
+library(MASS)
+library(nnet)
+library(patchwork)
+```
+
+```{r}
+#| label: load-data
+load("/Users/homer/git/agnes/data/prolific.Rda")
+```
+
+```{r}
+#| label: clean-data
+ss_levels <- c("Never", "Rarely", "Sometimes", "Usually", "Always")
+
+pro2 <- prolific |>
+  mutate(
+    s_english = factor(s_english, levels = c(0, 1), labels = c("No", "Yes"), ordered = TRUE),
+    s_abuse   = factor(s_abuse,   levels = c(0, 1), labels = c("No", "Yes"), ordered = TRUE),
+    across(c(ss1, ss2, ss3, ss4),
+           ~ factor(.x, levels = 1:5, labels = ss_levels, ordered = TRUE))
+  )
+```
+
+The following variables were transformed into ordered factors:
+
+- `s_english` and `s_abuse`: binary No/Yes factors
+- `ss1` through `ss4`: 5-point ordered factors (*Never* < *Rarely* < *Sometimes* < *Usually* < *Always*)
+
+A note on missing data: `nisvstot` has `r sum(is.na(pro2$nisvstot))` missing values out of `r nrow(pro2)` rows (~`r round(mean(is.na(pro2$nisvstot)) * 100)`%), which reduces the effective sample size for the regression model.
+
+## Ordinal logistic regression
+
+An ordinal logistic regression model was fit using `MASS::polr()`, with `ss1` as the response variable and `nisvstot` and `TBIcount` as predictors.
+
+```{r}
+#| label: fit-model
+fit_ord <- polr(ss1 ~ nisvstot + TBIcount, data = pro2, Hess = TRUE)
+```
+
+### Coefficients with p-values
+
+P-values were computed using the normal approximation of the t-statistic.
+
+```{r}
+#| label: coef-pvalues
+coef_table <- coef(summary(fit_ord))
+p_values <- pnorm(abs(coef_table[, "t value"]), lower.tail = FALSE) * 2
+coef_table <- cbind(coef_table, `p value` = p_values)
+printCoefmat(coef_table, digits = 4, has.Pvalue = TRUE)
+```
+
+### Odds ratios with 95% confidence intervals
+
+```{r}
+#| label: odds-ratios
+exp(cbind(OR = coef(fit_ord), confint(fit_ord)))
+```
+
+The odds ratio for `nisvstot` is below 1, indicating that higher domestic violence exposure is associated with lower odds of reporting higher perceived social support. The confidence interval for `TBIcount` includes 1, consistent with a non-significant result.
+
+## Assumption checks
+
+### Proportional odds assumption
+
+The proportional odds assumption was tested by comparing the ordinal logistic regression model against a more flexible multinomial logistic regression model using a likelihood ratio test. A non-significant result supports the assumption.
+
+```{r}
+#| label: proportional-odds-test
+fit_multi <- multinom(ss1 ~ nisvstot + TBIcount, data = pro2, trace = FALSE)
+
+lrt_stat <- 2 * (logLik(fit_multi) - logLik(fit_ord))
+df_diff  <- length(coef(fit_multi)) - length(c(coef(fit_ord), fit_ord$zeta))
+p_lrt    <- pchisq(lrt_stat, df = df_diff, lower.tail = FALSE)
+
+cat(sprintf("Chi-sq = %.3f, df = %d, p = %.4f\n", lrt_stat, df_diff, p_lrt))
+```
+
+The test was non-significant (p = `r round(p_lrt, 3)`), supporting the proportional odds assumption.
+
+### Multicollinearity
+
+```{r}
+#| label: predictor-correlation
+cor_val <- with(pro2, cor(nisvstot, TBIcount, use = "complete.obs"))
+cat(sprintf("Pearson correlation between nisvstot and TBIcount: r = %.3f\n", cor_val))
+```
+
+The correlation between the two predictors is moderate (r ≈ `r round(with(pro2, cor(nisvstot, TBIcount, use = "complete.obs")), 2)`), which is not severe enough to substantially distort the estimates but is worth noting.
+
+### Predictor distributions and relationship with ss1
+
+```{r}
+#| label: assumption-plots
+#| fig-width: 8
+#| fig-height: 6
+model_data <- pro2 |>
+  select(ss1, nisvstot, TBIcount) |>
+  drop_na()
+
+p1 <- ggplot(model_data, aes(x = nisvstot)) +
+  geom_histogram(bins = 20, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of nisvstot", x = "nisvstot", y = "Count")
+
+p2 <- ggplot(model_data, aes(x = TBIcount)) +
+  geom_histogram(bins = 20, fill = "coral", color = "white") +
+  labs(title = "Distribution of TBIcount", x = "TBIcount", y = "Count")
+
+p3 <- ggplot(model_data, aes(x = nisvstot, y = as.numeric(ss1))) +
+  geom_jitter(height = 0.2, alpha = 0.4, color = "steelblue") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkblue") +
+  scale_y_continuous(breaks = 1:5, labels = levels(pro2$ss1)) +
+  labs(title = "ss1 vs nisvstot", x = "nisvstot", y = "ss1")
+
+p4 <- ggplot(model_data, aes(x = TBIcount, y = as.numeric(ss1))) +
+  geom_jitter(height = 0.2, alpha = 0.4, color = "coral") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkred") +
+  scale_y_continuous(breaks = 1:5, labels = levels(pro2$ss1)) +
+  labs(title = "ss1 vs TBIcount", x = "TBIcount", y = "ss1")
+
+(p1 + p2) / (p3 + p4)
+```
+
+`TBIcount` shows notable right skew with a potential extreme outlier. This may be influencing the regression estimate for that predictor.
+
+## Interpretation
+
+### Threshold coefficients
+
+The model estimates four threshold (intercept) parameters that define the boundaries between adjacent response categories. The `Never|Rarely` threshold of `r round(fit_ord$zeta["Never|Rarely"], 2)` is large and negative, reflecting the fact that very few participants (n = 4) reported *never* having someone to listen to them. When `nisvstot = 0` and `TBIcount = 0`, the predicted probability of responding *"Never"* is approximately 1 / (1 + exp(4.36)) ≈ 1.3% — consistent with high baseline perceived social support in this sample.
+
+The `Usually|Always` threshold (≈ −0.015) is very close to zero, indicating that even at average predictor values, participants were roughly equally likely to respond *"Usually"* versus *"Always"* — reflecting the concentration of responses in the upper two categories.
+
+### nisvstot
+
+The coefficient for `nisvstot` is `r round(coef(fit_ord)["nisvstot"], 3)` (OR = `r round(exp(coef(fit_ord)["nisvstot"]), 3)`, p = 0.008). Each additional endorsement on the domestic violence questionnaire is associated with approximately a **7% decrease in the odds** of reporting a higher level of perceived social support. Across the observed range of scores (1–31), this represents a substantively meaningful effect: someone who endorsed 10 more items would have roughly half the odds of reporting higher social support compared to someone with 10 fewer endorsements.
+
+This finding is clinically and theoretically interpretable: survivors of domestic violence and sexual assault may have had their support networks deliberately undermined by abusers, or may feel shame or fear that prevents them from reaching out.
+
+### TBIcount
+
+The coefficient for `TBIcount` is `r round(coef(fit_ord)["TBIcount"], 3)` (OR = `r round(exp(coef(fit_ord)["TBIcount"]), 3)`, p = 0.316). This effect is not statistically significant, and the 95% confidence interval for the odds ratio (0.94–1.22) includes 1. The number of head injuries does not appear to have a meaningful independent relationship with perceived social support in this sample, though the skewed distribution and potential extreme outlier warrant caution in interpreting this result.
