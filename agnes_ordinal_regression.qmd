@@ -44,13 +44,7 @@ load("/Users/homer/git/agnes/data/prolific.Rda")
 #| label: clean-data
 ss_levels <- c("Never", "Rarely", "Sometimes", "Usually", "Always")
 
-pro2 <- prolific |>
-  mutate(
-    s_english = factor(s_english, levels = c(0, 1), labels = c("No", "Yes"), ordered = TRUE),
-    s_abuse   = factor(s_abuse,   levels = c(0, 1), labels = c("No", "Yes"), ordered = TRUE),
-    across(c(ss1, ss2, ss3, ss4),
-           ~ factor(.x, levels = 1:5, labels = ss_levels, ordered = TRUE))
-  )
+pro2 <- prolific
 ```
 
 The following variables were transformed into ordered factors:
@@ -171,3 +165,4 @@ This finding is clinically and theoretically interpretable: survivors of domesti
 ### TBIcount
 
 The coefficient for `TBIcount` is `r round(coef(fit_ord)["TBIcount"], 3)` (OR = `r round(exp(coef(fit_ord)["TBIcount"]), 3)`, p = 0.316). This effect is not statistically significant, and the 95% confidence interval for the odds ratio (0.94–1.22) includes 1. The number of head injuries does not appear to have a meaningful independent relationship with perceived social support in this sample, though the skewed distribution and potential extreme outlier warrant caution in interpreting this result.
+

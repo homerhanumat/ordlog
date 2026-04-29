@@ -1,0 +1,99 @@
+
+---
+title: "Social support and domestic violence: ordinal logistic regression"
+date: "March 20, 2026"
+format: html
+---
+
+::: {.callout-note}
+This report was generated using AI under general human direction. At the time of generation, the contents have not been comprehensively reviewed by a human analyst.
+
+<!--
+To indicate human review: Delete the line above about contents not being reviewed, and replace this comment with:
+The contents have been reviewed and validated by [Your Name], [Your Role] on [Date].
+-->
+:::
+
+## Introduction
+
+This report presents an ordinal logistic regression analysis using data collected via Prolific. The outcome variable is `ss1`, which captures participants' responses to the statement: *"I have someone who will listen to me when I need to talk."* Responses were recorded on a 5-point ordered scale from *Never* to *Always*.
+
+The two explanatory variables are:
+
+- **`nisvstot`**: Sum-score of a 34-item domestic violence questionnaire (yes/no items); higher scores indicate greater experience of violence and/or sexual assault.
+- **`TBIcount`**: Total number of head injuries the participant has experienced.
+
+The dataset contains `r nrow(pro2)` participants and `r ncol(pro2)` variables.
+
+## Data loading and cleaning
+
+```{r}
+#| label: load-packages
+library(tidyverse)
+library(MASS) # will mask tidyverse select
+```
+
+```{r}
+#| label: load-data
+load("/Users/homer/git/agnes/data/prolific.Rda")
+```
+
+```{r}
+#| label: clean-data
+ss_levels <- c("Never", "Rarely", "Sometimes", "Usually", "Always")
+
+pro2 <- prolific |> 
+  dplyr::select(ss1, TBIcount) |> 
+  mutate(ss1_2 = haven::as_factor(ss1)) |> 
+  mutate(ss1_2 = factor(ss1_2, levels = ss_levels))
+```
+
+
+
+## Bootstrap Example
+
+```{r}
+library(rsample)
+library(purrr)
+library(broom) # will mask rsample tidy
+
+set.seed(8214)
+
+# Use the same complete-case data as the ordinal model
+model_data <- pro2 |>
+  dplyr::select(ss1_2, TBIcount) |>
+  drop_na()
+
+boot_splits <- bootstraps(model_data, times = 1000)
+
+# Fit on each bootstrap resample
+fit_on_split <- function(split) {
+  MASS::polr(ss1_2 ~ TBIcount,
+      data = rsample::analysis(split),
+      Hess = TRUE)
+}
+
+summary(fit_on_split(boot_splits$splits[[2]]))
+
+boot_results <- boot_splits |>
+  mutate(
+    model = map(splits, fit_on_split),
+    coefs = map(model, broom::tidy)
+  )
+
+# Unnest and compute percentile CIs
+boot_ci <- boot_results |>
+  dplyr::select(id, coefs) |>
+  unnest(coefs) |>
+  summarise(
+    boot_estimate = mean(estimate),
+    lower_95 = quantile(estimate, 0.025),
+    upper_95 = quantile(estimate, 0.975),
+    .by = term
+  )
+
+boot_ci
+```
+
+You would still want to check the proportional odds assumption and look at correlations between [redictors (see other Quarto document).
+
